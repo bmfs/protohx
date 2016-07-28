@@ -59,6 +59,24 @@ public final class Proto2Haxe {
             return parent == null;
         }
 
+        public Scope<?> getParent(){
+             return parent;
+        }
+
+        public String getFullName()
+        {
+            return fullName;
+        }
+
+        public String getParentFullName()
+        {
+            Scope<?> scope = this;
+            if (parent != null){
+                return scope.getParent().getFullName();
+            }
+            return "";
+        }
+
         private Scope<?> getRoot() {
             Scope<?> scope = this;
             while (!scope.isRoot()) {
@@ -156,8 +174,10 @@ public final class Proto2Haxe {
     private static void addEnumToScope(Scope<?> scope, EnumDescriptorProto edp,
                                        boolean export) {
         assert (edp.hasName());
+        String name = normalizeName(edp.getName());
+        //System.err.println("Adding enum " + edp.getName() + " - " + name);
         Scope<EnumDescriptorProto> enumScope =
-                scope.addChild(edp.getName(), edp, export);
+                scope.addChild(name, edp, export);
         for (EnumValueDescriptorProto evdp : edp.getValueList()) {
             Scope<EnumValueDescriptorProto> enumValueScope =
                     enumScope.addChild(evdp.getName(), evdp, false);
@@ -202,20 +222,26 @@ public final class Proto2Haxe {
 
     private static String getImportType(Scope<?> scope,
                                         FieldDescriptorProto fdp) {
+        String typeName;
         switch (fdp.getType()) {
             case TYPE_ENUM:
+                typeName = normalizeName(fdp.getTypeName());
+                break;
             case TYPE_MESSAGE:
-                Scope<?> typeScope = scope.find(fdp.getTypeName());
-                if (typeScope == null) {
-                    throw new IllegalArgumentException(
-                            fdp.getTypeName() + " not found.");
-                }
-                return typeScope.fullName;
+                typeName = fdp.getTypeName();
+                break;
             case TYPE_BYTES:
                 return null;
             default:
                 return null;
         }
+
+        // if enum or message
+        Scope<?> typeScope = scope.find(typeName);
+        if (typeScope == null) {
+            throw new IllegalArgumentException( typeName + " not found.");
+        }
+        return typeScope.fullName;
     }
 
     private static boolean isValueType(FieldDescriptorProto.Type type) {
@@ -840,7 +866,11 @@ public final class Proto2Haxe {
 
     private static void writeEnum(Scope<EnumDescriptorProto> scope,
                                   StringBuilder content) {
-        final String name = scope.proto.getName();
+        String name = scope.proto.getName();
+        name = normalizeName(name);
+        /*if (name.equals("_")){
+            name = getNameFromPackage(scope.getParentFullName());
+        }*/
         content.append("import protohx.Protohx;\n");
         content.append("class " + upperFirst(name) + " {\n");
         for (EnumValueDescriptorProto evdp : scope.proto.getValueList()) {
@@ -931,12 +961,17 @@ public final class Proto2Haxe {
         
         List<String> list = Arrays.asList(parts);
        
+        return mergeList(list, ".");
+    }
+
+    public static String mergeList(List<String> list, String c)
+    {
         Iterator<String> iter = list.iterator();
         StringBuilder sb = new StringBuilder();
         if (iter.hasNext()) {
             sb.append(iter.next());
             while (iter.hasNext()) {
-                sb.append('.').append(iter.next());
+                sb.append(c).append(iter.next());
             }
         }
         return sb.toString();
@@ -945,6 +980,35 @@ public final class Proto2Haxe {
     public static String upperFirst(String str)
     {
         return str.substring(0, 1).toUpperCase() + str.substring(1);
+    }
+
+    public static String getNameFromPackage(String name)
+    {
+        String[] parts = name.split("\\.");
+        if (parts.length == 0 ) return "";
+        return parts[parts.length-1];
+    }
+
+    public static String normalizeName(String name)
+    {
+        String[] parts = name.split("\\.");
+        if (parts.length == 0 ) parts[0] = name;
+
+        int lastIdx = parts.length-1;
+        /*if (parts[lastIdx].equals("_"){
+            parts[lastIdx] = "Enum"
+        }*/
+        String newName = parts[lastIdx].replaceAll("^(_)+", "Enum");
+        if (!parts[lastIdx].equals(newName)){
+            System.err.println("Renamed " + name + " to " + newName);
+        }
+        parts[lastIdx] = newName;
+
+        parts[parts.length-1] = upperFirst(parts[parts.length-1]);
+        
+        List<String> list = Arrays.asList(parts);
+       
+        return mergeList(list, ".");
     }
 }
 
